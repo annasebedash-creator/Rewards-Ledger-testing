@@ -114,7 +114,10 @@ export class Ledger {
     if (this.expired) return 0;
     let earned = 0;
     for (const rec of this.purchases.values()) {
-      if (!rec.refunded) earned += rec.points;
+      // Pending card amounts are NOT spendable: settlement may reduce them, and points
+      // spent against a pending amount would leave the balance negative. (Found by a
+      // 1000-run property test — see README and the regression test.)
+      if (!rec.refunded && rec.status === "booked") earned += rec.points;
     }
     return earned - this.spent;
   }

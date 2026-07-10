@@ -74,7 +74,7 @@ describe("invariants over random event sequences", () => {
           }
         }
         expect(l.balance(last)).toBeLessThanOrEqual(before);
-      })
+      }), { numRuns: 1000 }
     );
   });
 
@@ -87,7 +87,7 @@ describe("invariants over random event sequences", () => {
           .filter((e): e is Extract<typeof e, { type: "earn" }> => e.type === "earn")
           .reduce((sum, e) => sum + Math.floor(e.amountCents / 100), 0);
         expect(l.balance(last)).toBeLessThanOrEqual(maxPossible);
-      })
+      }), { numRuns: 1000 }
     );
   });
 
@@ -97,7 +97,7 @@ describe("invariants over random event sequences", () => {
         const l = new Ledger();
         const last = replay(l, events);
         expect(l.balance(last)).toBeGreaterThanOrEqual(0);
-      })
+      }), { numRuns: 1000 }
     );
   });
 });

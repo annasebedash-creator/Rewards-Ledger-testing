@@ -53,6 +53,18 @@ describe("deduplication — the same purchase must never pay twice", () => {
 });
 
 describe("pending vs. booked — settled amounts win", () => {
+  it("REGRESSION: pending card points are not spendable (found by 1000-run property test)", () => {
+    // Counterexample found by fast-check at numRuns=1000 (missed at the default 100):
+    // spend against a pending authorization, then the booked settlement comes in lower
+    // → balance went negative without any refund. Fix: pending points aren't spendable.
+    const l = new Ledger();
+    l.apply(card("p1", 100, "pending")); // authorized 1.00 €
+    expect(l.balance(t0)).toBe(0); // not spendable yet
+    expect(() => l.apply({ type: "spend", points: 1, at: t0 })).toThrow();
+    l.apply(card("p1", 100, "booked"));
+    expect(l.balance(t0)).toBe(1); // spendable once settled
+  });
+
   it("booked amount overrides the pending authorization amount", () => {
     const l = new Ledger();
     l.apply(card("p1", 10000, "pending")); // authorized 100 €
