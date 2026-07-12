@@ -8,7 +8,7 @@ import { Ledger, type LedgerEvent } from "../src/ledger";
  * This is how you catch the edge case nobody thought to write a test for.
  */
 
-const t0 = new Date("2026-08-16T12:00:00Z");
+const t0 = new Date("2026-01-15T12:00:00Z"); // arbitrary fixed epoch for reproducibility
 
 // Random earn/spend/refund sequences over a small purchase-ID space (to force collisions/dedup).
 const eventArb = fc.oneof(
@@ -18,17 +18,17 @@ const eventArb = fc.oneof(
     source: fc.constantFrom<"receipt" | "card">("receipt", "card"),
     amountCents: fc.integer({ min: 0, max: 50_000 }),
     status: fc.constantFrom<"pending" | "booked">("pending", "booked"),
-    offsetDays: fc.integer({ min: 0, max: 30 }),
+    offsetDays: fc.integer({ min: 0, max: 400 }),
   }),
   fc.record({
     type: fc.constant<"spend">("spend"),
     points: fc.integer({ min: 0, max: 100 }),
-    offsetDays: fc.integer({ min: 0, max: 30 }),
+    offsetDays: fc.integer({ min: 0, max: 400 }),
   }),
   fc.record({
     type: fc.constant<"refund">("refund"),
     purchaseId: fc.constantFrom("a", "b", "c", "d", "ghost"),
-    offsetDays: fc.integer({ min: 0, max: 30 }),
+    offsetDays: fc.integer({ min: 0, max: 400 }),
   })
 );
 

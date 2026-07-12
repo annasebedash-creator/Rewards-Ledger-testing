@@ -53,8 +53,8 @@ interface PurchaseRecord {
 export class Ledger {
   private purchases = new Map<string, PurchaseRecord>();
   private spent = 0;
+  private forfeited = 0;
   private lastActivity: Date | null = null;
-  private expired = false;
 
   /** Points from a purchase amount: 1 point per started euro is a classic off-by-one trap — we use full euros. */
   static pointsFor(amountCents: number): number {
@@ -111,7 +111,6 @@ export class Ledger {
   /** Current balance as of `now` (expiry is evaluated lazily). */
   balance(now: Date): number {
     this.expireIfInactive(now);
-    if (this.expired) return 0;
     let earned = 0;
     for (const rec of this.purchases.values()) {
       // Pending card amounts are NOT spendable: settlement may reduce them, and points
@@ -119,21 +118,36 @@ export class Ledger {
       // 1000-run property test — see README and the regression test.)
       if (!rec.refunded && rec.status === "booked") earned += rec.points;
     }
-    return earned - this.spent;
+    return earned - this.spent - this.forfeited;
   }
 
   private expireIfInactive(now: Date): void {
-    if (this.expired || this.lastActivity === null) return;
-    const inactiveMs = now.getTime() - this.lastActivity.getTime();
-    if (inactiveMs >= EXPIRY_DAYS * DAY_MS) {
-      // Full-balance expiry after 180 days of inactivity.
-      this.expired = true;
+    // A returning user must be able to earn again after expiry: instead of a permanent
+    // "expired" flag (which bricked the account — a bug found in critical review, see
+    // README), inactivity forfeits the balance accrued so far and the account lives on.
+    // Loop: repeated 180-day gaps forfeit repeatedly.
+    while (this.lastActivity !== null) {
+      const boundary = this.lastActivity.getTime() + EXPIRY_DAYS * DAY_MS;
+      if (now.getTime() < boundary) break;
+      const atBoundary = this.rawBalance();
+      if (atBoundary > 0) this.forfeited += atBoundary;
+      // Restart the inactivity clock from the boundary, not from `now`.
+      this.lastActivity = new Date(boundary);
+      if (now.getTime() === boundary) break;
     }
   }
 
-  /** True if the whole balance has been expired for inactivity. */
-  isExpired(now: Date): boolean {
+  private rawBalance(): number {
+    let earned = 0;
+    for (const rec of this.purchases.values()) {
+      if (!rec.refunded && rec.status === "booked") earned += rec.points;
+    }
+    return earned - this.spent - this.forfeited;
+  }
+
+  /** Points forfeited to inactivity expiry so far (as of `now`). */
+  forfeitedPoints(now: Date): number {
     this.expireIfInactive(now);
-    return this.expired;
+    return this.forfeited;
   }
 }

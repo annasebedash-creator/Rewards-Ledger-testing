@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Ledger, EXPIRY_DAYS } from "../src/ledger";
 
 const DAY = 24 * 60 * 60 * 1000;
-const t0 = new Date("2026-08-16T12:00:00Z");
+const t0 = new Date("2026-01-15T12:00:00Z"); // arbitrary fixed epoch for reproducibility
 const at = (days: number, extraMs = 0) => new Date(t0.getTime() + days * DAY + extraMs);
 
 const receipt = (purchaseId: string, amountCents: number, when = t0) =>
@@ -136,11 +136,11 @@ describe("180-day inactivity expiry — boundary dates are where the bugs live",
     expect(l.balance(at(EXPIRY_DAYS, -1))).toBe(100);
   });
 
-  it("balance expires exactly at the 180-day boundary", () => {
+  it("balance is forfeited exactly at the 180-day boundary", () => {
     const l = new Ledger();
     l.apply(receipt("p1", 10000));
     expect(l.balance(at(EXPIRY_DAYS))).toBe(0);
-    expect(l.isExpired(at(EXPIRY_DAYS))).toBe(true);
+    expect(l.forfeitedPoints(at(EXPIRY_DAYS))).toBe(100);
   });
 
   it("any activity resets the inactivity clock", () => {
@@ -151,11 +151,33 @@ describe("180-day inactivity expiry — boundary dates are where the bugs live",
     expect(l.balance(at(100 + EXPIRY_DAYS))).toBe(0); // ...but day 280 is
   });
 
-  it("expiry is permanent — later events do not resurrect the old balance", () => {
+  it("forfeiture is permanent — the old balance does not come back", () => {
     const l = new Ledger();
     l.apply(receipt("p1", 10000));
     expect(l.balance(at(EXPIRY_DAYS + 10))).toBe(0);
-    expect(l.isExpired(at(EXPIRY_DAYS + 10))).toBe(true);
+    expect(l.forfeitedPoints(at(EXPIRY_DAYS + 10))).toBe(100);
+  });
+
+  it("REGRESSION: a returning user can earn again after expiry (account must not brick)", () => {
+    // Found by critical review, missed by the original suite: the first implementation
+    // used a permanent `expired` flag, so a user who came back on day 181 could scan
+    // receipts forever and always see balance 0. Expiry must forfeit the old balance,
+    // not disable the account.
+    const l = new Ledger();
+    l.apply(receipt("p1", 10000));
+    expect(l.balance(at(EXPIRY_DAYS + 1))).toBe(0); // old 100 points forfeited
+    l.apply(receipt("p2", 2500, at(EXPIRY_DAYS + 1))); // returning user scans a receipt
+    expect(l.balance(at(EXPIRY_DAYS + 1))).toBe(25); // new points credit normally
+    expect(l.forfeitedPoints(at(EXPIRY_DAYS + 1))).toBe(100);
+  });
+
+  it("repeated inactivity gaps forfeit repeatedly", () => {
+    const l = new Ledger();
+    l.apply(receipt("p1", 10000));
+    l.apply(receipt("p2", 5000, at(EXPIRY_DAYS + 10))); // return after first forfeiture
+    // second gap: no activity for another 180 days after day EXPIRY_DAYS+10
+    expect(l.balance(at(EXPIRY_DAYS + 10 + EXPIRY_DAYS))).toBe(0);
+    expect(l.forfeitedPoints(at(EXPIRY_DAYS + 10 + EXPIRY_DAYS))).toBe(150);
   });
 
   it("refunds do NOT count as activity (user did nothing)", () => {
@@ -163,6 +185,6 @@ describe("180-day inactivity expiry — boundary dates are where the bugs live",
     l.apply(receipt("p1", 10000));
     l.apply(receipt("p2", 1000));
     l.apply({ type: "refund", purchaseId: "p2", at: at(179) }); // merchant-side event
-    expect(l.balance(at(EXPIRY_DAYS))).toBe(0); // still expires on day 180
+    expect(l.balance(at(EXPIRY_DAYS))).toBe(0); // still forfeits on day 180
   });
 });
